@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/arttor/helmify/internal"
@@ -76,5 +77,52 @@ func Test_svc_Process(t *testing.T) {
 		assert.NoError(t, err)
 		assert.True(t, found)
 		assert.Len(t, ipFamilies, 2)
+	})
+
+	t.Run("processed with duplicate app.kubernetes.io/name in selector", func(t *testing.T) {
+		const svcWithDuplicateYaml = `apiVersion: v1
+kind: Service
+metadata:
+  name: my-service
+spec:
+  ports:
+  - port: 8080
+  selector:
+    app.kubernetes.io/name: platform-operator
+    control-plane: controller-manager`
+		obj := internal.GenerateObj(svcWithDuplicateYaml)
+		processed, template, err := testInstance.Process(&metadata.Service{}, obj)
+		assert.NoError(t, err)
+		assert.True(t, processed)
+		var buf bytes.Buffer
+		err = template.Write(&buf)
+		assert.NoError(t, err)
+		out := buf.String()
+		assert.NotContains(t, out, "app.kubernetes.io/name: platform-operator")
+		assert.Contains(t, out, "control-plane: controller-manager")
+		assert.Contains(t, out, `{{- include ".selectorLabels" . | nindent 4 }}`)
+	})
+
+	t.Run("processed with only app.kubernetes.io/name in selector", func(t *testing.T) {
+		const svcOnlyNameYaml = `apiVersion: v1
+kind: Service
+metadata:
+  name: my-service
+spec:
+  ports:
+  - port: 8080
+  selector:
+    app.kubernetes.io/name: platform-operator`
+		obj := internal.GenerateObj(svcOnlyNameYaml)
+		processed, template, err := testInstance.Process(&metadata.Service{}, obj)
+		assert.NoError(t, err)
+		assert.True(t, processed)
+		var buf bytes.Buffer
+		err = template.Write(&buf)
+		assert.NoError(t, err)
+		out := buf.String()
+		assert.NotContains(t, out, "app.kubernetes.io/name: platform-operator")
+		assert.NotContains(t, out, "{}")
+		assert.Contains(t, out, "selector:\n    {{- include \".selectorLabels\" . | nindent 4 }}")
 	})
 }

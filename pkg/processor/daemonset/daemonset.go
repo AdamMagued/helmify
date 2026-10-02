@@ -67,12 +67,20 @@ func (d daemonset) Process(appMeta helmify.AppMetadata, obj *unstructured.Unstru
 
 	name := appMeta.TrimName(obj.GetName())
 
-	matchLabels, err := yamlformat.Marshal(map[string]interface{}{"matchLabels": dae.Spec.Selector.MatchLabels}, 0)
-	if err != nil {
-		return true, nil, err
+	if dae.Spec.Selector != nil && dae.Spec.Selector.MatchLabels != nil {
+		delete(dae.Spec.Selector.MatchLabels, "app.kubernetes.io/name")
+	}
+	var matchLabels string
+	if dae.Spec.Selector != nil && len(dae.Spec.Selector.MatchLabels) > 0 {
+		matchLabels, err = yamlformat.Marshal(map[string]interface{}{"matchLabels": dae.Spec.Selector.MatchLabels}, 0)
+		if err != nil {
+			return true, nil, err
+		}
+	} else {
+		matchLabels = "matchLabels:"
 	}
 	matchExpr := ""
-	if dae.Spec.Selector.MatchExpressions != nil {
+	if dae.Spec.Selector != nil && dae.Spec.Selector.MatchExpressions != nil {
 		matchExpr, err = yamlformat.Marshal(map[string]interface{}{"matchExpressions": dae.Spec.Selector.MatchExpressions}, 0)
 		if err != nil {
 			return true, nil, err
@@ -82,11 +90,17 @@ func (d daemonset) Process(appMeta helmify.AppMetadata, obj *unstructured.Unstru
 	selector = strings.Trim(selector, " \n")
 	selector = string(yamlformat.Indent([]byte(selector), 4))
 
-	podLabels, err := yamlformat.Marshal(dae.Spec.Template.ObjectMeta.Labels, 8)
-	if err != nil {
-		return true, nil, err
+	delete(dae.Spec.Template.ObjectMeta.Labels, "app.kubernetes.io/name")
+	var podLabels string
+	if len(dae.Spec.Template.ObjectMeta.Labels) > 0 {
+		podLabels, err = yamlformat.Marshal(dae.Spec.Template.ObjectMeta.Labels, 8)
+		if err != nil {
+			return true, nil, err
+		}
+		podLabels += fmt.Sprintf("\n      {{- include \"%s.selectorLabels\" . | nindent 8 }}", appMeta.ChartName())
+	} else {
+		podLabels = fmt.Sprintf("      {{- include \"%s.selectorLabels\" . | nindent 8 }}", appMeta.ChartName())
 	}
-	podLabels += fmt.Sprintf("\n      {{- include \"%s.selectorLabels\" . | nindent 8 }}", appMeta.ChartName())
 
 	podAnnotations := ""
 	if len(dae.Spec.Template.ObjectMeta.Annotations) != 0 {

@@ -23,8 +23,7 @@ const (
 	svcTempSpec = `
 spec:
   type: {{ .Values.%[1]s.type }}
-  selector:
-%[2]s
+  selector:%[2]s
     {{- include "%[3]s.selectorLabels" . | nindent 4 }}%[4]s
   ports:
   {{- .Values.%[1]s.ports | toYaml | nindent 2 }}`
@@ -80,9 +79,14 @@ func (r svc) Process(appMeta helmify.AppMetadata, obj *unstructured.Unstructured
 	shortName := strings.TrimPrefix(name, "controller-manager-")
 	shortNameCamel := strcase.ToLowerCamel(shortName)
 
-	selector, _ := yaml.Marshal(service.Spec.Selector)
-	selector = yamlformat.Indent(selector, 4)
-	selector = bytes.TrimRight(selector, "\n ")
+	delete(service.Spec.Selector, "app.kubernetes.io/name")
+	var selector string
+	if len(service.Spec.Selector) > 0 {
+		s, _ := yaml.Marshal(service.Spec.Selector)
+		s = yamlformat.Indent(s, 4)
+		s = bytes.TrimRight(s, "\n ")
+		selector = "\n" + string(s)
+	}
 
 	values := helmify.Values{}
 	svcType := service.Spec.Type

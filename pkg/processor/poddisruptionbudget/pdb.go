@@ -61,9 +61,17 @@ func (r pdb) Process(appMeta helmify.AppMetadata, obj *unstructured.Unstructured
 	name := appMeta.TrimName(obj.GetName())
 	nameCamel := strcase.ToLowerCamel(name)
 
-	selector, _ := yaml.Marshal(pdb.Spec.Selector)
-	selector = yamlformat.Indent(selector, 4)
-	selector = bytes.TrimRight(selector, "\n ")
+	if pdb.Spec.Selector != nil && pdb.Spec.Selector.MatchLabels != nil {
+		delete(pdb.Spec.Selector.MatchLabels, "app.kubernetes.io/name")
+	}
+	var selector string
+	if pdb.Spec.Selector == nil || (len(pdb.Spec.Selector.MatchLabels) == 0 && len(pdb.Spec.Selector.MatchExpressions) == 0) {
+		selector = "    matchLabels:"
+	} else {
+		s, _ := yaml.Marshal(pdb.Spec.Selector)
+		s = yamlformat.Indent(s, 4)
+		selector = string(bytes.TrimRight(s, "\n "))
+	}
 
 	if spec.MaxUnavailable != nil {
 		_, err := values.Add(spec.MaxUnavailable.IntValue(), nameCamel, "maxUnavailable")

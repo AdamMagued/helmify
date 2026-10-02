@@ -1,6 +1,7 @@
 package deployment
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/arttor/helmify/pkg/metadata"
@@ -134,6 +135,75 @@ func Test_deployment_Process(t *testing.T) {
 		processed, _, err := testInstance.Process(&metadata.Service{}, obj)
 		assert.NoError(t, err)
 		assert.Equal(t, false, processed)
+	})
+
+	t.Run("processed with duplicate app.kubernetes.io/name in selector and pod labels", func(t *testing.T) {
+		const deplWithDuplicateYaml = `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform-operator
+  labels:
+    app.kubernetes.io/name: platform-operator
+    control-plane: controller-manager
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: platform-operator
+      control-plane: controller-manager
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: platform-operator
+        control-plane: controller-manager
+    spec:
+      containers:
+      - name: manager
+        image: controller:latest`
+		obj := internal.GenerateObj(deplWithDuplicateYaml)
+		processed, template, err := testInstance.Process(&metadata.Service{}, obj)
+		assert.NoError(t, err)
+		assert.True(t, processed)
+		var buf bytes.Buffer
+		err = template.Write(&buf)
+		assert.NoError(t, err)
+		out := buf.String()
+		assert.NotContains(t, out, "app.kubernetes.io/name: platform-operator")
+		assert.Contains(t, out, "control-plane: controller-manager")
+		assert.Contains(t, out, `{{- include ".selectorLabels" . | nindent 6 }}`)
+		assert.Contains(t, out, `{{- include ".selectorLabels" . | nindent 8 }}`)
+	})
+
+	t.Run("processed with only app.kubernetes.io/name in selector and pod labels", func(t *testing.T) {
+		const deplOnlyNameYaml = `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform-operator
+  labels:
+    app.kubernetes.io/name: platform-operator
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: platform-operator
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: platform-operator
+    spec:
+      containers:
+      - name: manager
+        image: controller:latest`
+		obj := internal.GenerateObj(deplOnlyNameYaml)
+		processed, template, err := testInstance.Process(&metadata.Service{}, obj)
+		assert.NoError(t, err)
+		assert.True(t, processed)
+		var buf bytes.Buffer
+		err = template.Write(&buf)
+		assert.NoError(t, err)
+		out := buf.String()
+		assert.NotContains(t, out, "app.kubernetes.io/name: platform-operator")
+		assert.NotContains(t, out, "matchLabels: {}")
+		assert.Contains(t, out, "matchLabels:\n    {{- include \".selectorLabels\" . | nindent 6 }}")
+		assert.Contains(t, out, "labels:\n      {{- include \".selectorLabels\" . | nindent 8 }}")
 	})
 }
 

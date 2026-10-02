@@ -93,12 +93,20 @@ func (d deployment) Process(appMeta helmify.AppMetadata, obj *unstructured.Unstr
 		return true, nil, err
 	}
 
-	matchLabels, err := yamlformat.Marshal(map[string]interface{}{"matchLabels": depl.Spec.Selector.MatchLabels}, 0)
-	if err != nil {
-		return true, nil, err
+	if depl.Spec.Selector != nil && depl.Spec.Selector.MatchLabels != nil {
+		delete(depl.Spec.Selector.MatchLabels, "app.kubernetes.io/name")
+	}
+	var matchLabels string
+	if depl.Spec.Selector != nil && len(depl.Spec.Selector.MatchLabels) > 0 {
+		matchLabels, err = yamlformat.Marshal(map[string]interface{}{"matchLabels": depl.Spec.Selector.MatchLabels}, 0)
+		if err != nil {
+			return true, nil, err
+		}
+	} else {
+		matchLabels = "matchLabels:"
 	}
 	matchExpr := ""
-	if depl.Spec.Selector.MatchExpressions != nil {
+	if depl.Spec.Selector != nil && depl.Spec.Selector.MatchExpressions != nil {
 		matchExpr, err = yamlformat.Marshal(map[string]interface{}{"matchExpressions": depl.Spec.Selector.MatchExpressions}, 0)
 		if err != nil {
 			return true, nil, err
@@ -108,11 +116,17 @@ func (d deployment) Process(appMeta helmify.AppMetadata, obj *unstructured.Unstr
 	selector = strings.Trim(selector, " \n")
 	selector = string(yamlformat.Indent([]byte(selector), 4))
 
-	podLabels, err := yamlformat.Marshal(depl.Spec.Template.ObjectMeta.Labels, 8)
-	if err != nil {
-		return true, nil, err
+	delete(depl.Spec.Template.ObjectMeta.Labels, "app.kubernetes.io/name")
+	var podLabels string
+	if len(depl.Spec.Template.ObjectMeta.Labels) > 0 {
+		podLabels, err = yamlformat.Marshal(depl.Spec.Template.ObjectMeta.Labels, 8)
+		if err != nil {
+			return true, nil, err
+		}
+		podLabels += fmt.Sprintf("\n      {{- include \"%s.selectorLabels\" . | nindent 8 }}", appMeta.ChartName())
+	} else {
+		podLabels = fmt.Sprintf("      {{- include \"%s.selectorLabels\" . | nindent 8 }}", appMeta.ChartName())
 	}
-	podLabels += fmt.Sprintf("\n      {{- include \"%s.selectorLabels\" . | nindent 8 }}", appMeta.ChartName())
 
 	podAnnotations := ""
 	if len(depl.Spec.Template.ObjectMeta.Annotations) != 0 {
